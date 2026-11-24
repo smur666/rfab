@@ -1,0 +1,455 @@
+{
+  "version": "1.0.0",
+  "name": "neko_voss",
+  "bg": "cyber_neon_bg90.jpg",
+  "state_machine": {
+    "name": "companion_anim_fsm",
+    "version": "1.0.0",
+    "description": "Neko Voss animation state machine. intro plays once, then idle loops forever. One-shot gesture states (incl. the _talk variants) interrupt idle and auto-return to idle. speaking/thinking loop until their .end events. outro is terminal.",
+    "initial": "intro",
+    "terminal": [
+      "outro"
+    ],
+    "default_state": "idle",
+    "conventions": {
+      "from": "'*' = any state except the initial, the terminal state, and the state itself",
+      "auto_return": "every state listed in `states` with `auto_return: true` fires `<name>.finished` and must return to idle",
+      "cancel": "any one-shot state may be aborted by `cancel`, which returns straight to idle (skipping out-transitions)"
+    },
+    "states": {
+      "intro": {
+        "clip": "intro",
+        "loop": false,
+        "interruptible": false,
+        "auto_return": false,
+        "on_finish": "idle"
+      },
+      "idle": {
+        "clip": "idle",
+        "loop": true,
+        "interruptible": true,
+        "auto_return": false,
+        "priority": 0
+      },
+      "angry": {
+        "clip": "angry",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "angry_talk": {
+        "clip": "angry_talk",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "cry": {
+        "clip": "cry",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "happy": {
+        "clip": "happy",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "happy_talk": {
+        "clip": "happy_talk",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "headshake": {
+        "clip": "headshake",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "laugh": {
+        "clip": "laugh",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "look_left_talk": {
+        "clip": "look_left_talk",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "nod": {
+        "clip": "nod",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "popcorn": {
+        "clip": "popcorn",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "sad": {
+        "clip": "sad",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "sad_talk": {
+        "clip": "sad_talk",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "shy": {
+        "clip": "shy",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "surprised": {
+        "clip": "surprised",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "surprised_talk": {
+        "clip": "surprised_talk",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "speaking": {
+        "clip": "speaking",
+        "loop": true,
+        "interruptible": true,
+        "auto_return": false,
+        "priority": 30
+      },
+      "thinking": {
+        "clip": "thinking",
+        "loop": true,
+        "interruptible": true,
+        "auto_return": false,
+        "priority": 25
+      },
+      "outro": {
+        "clip": "outro",
+        "loop": false,
+        "interruptible": false,
+        "auto_return": false,
+        "terminal": true,
+        "priority": 100
+      }
+    },
+    "transitions": [
+      {
+        "from": "intro",
+        "to": "idle",
+        "event": "intro.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "*",
+        "to": "angry",
+        "event": "play:angry"
+      },
+      {
+        "from": "*",
+        "to": "angry_talk",
+        "event": "play:angry_talk"
+      },
+      {
+        "from": "*",
+        "to": "cry",
+        "event": "play:cry"
+      },
+      {
+        "from": "*",
+        "to": "happy",
+        "event": "play:happy"
+      },
+      {
+        "from": "*",
+        "to": "happy_talk",
+        "event": "play:happy_talk"
+      },
+      {
+        "from": "*",
+        "to": "headshake",
+        "event": "play:headshake"
+      },
+      {
+        "from": "*",
+        "to": "laugh",
+        "event": "play:laugh"
+      },
+      {
+        "from": "*",
+        "to": "look_left_talk",
+        "event": "play:look_left_talk"
+      },
+      {
+        "from": "*",
+        "to": "nod",
+        "event": "play:nod"
+      },
+      {
+        "from": "*",
+        "to": "popcorn",
+        "event": "play:popcorn"
+      },
+      {
+        "from": "*",
+        "to": "sad",
+        "event": "play:sad"
+      },
+      {
+        "from": "*",
+        "to": "sad_talk",
+        "event": "play:sad_talk"
+      },
+      {
+        "from": "*",
+        "to": "shy",
+        "event": "play:shy"
+      },
+      {
+        "from": "*",
+        "to": "surprised",
+        "event": "play:surprised"
+      },
+      {
+        "from": "*",
+        "to": "surprised_talk",
+        "event": "play:surprised_talk"
+      },
+      {
+        "from": "*",
+        "to": "speaking",
+        "event": "speech.start"
+      },
+      {
+        "from": "*",
+        "to": "thinking",
+        "event": "think.start"
+      },
+      {
+        "from": "angry",
+        "to": "idle",
+        "event": "angry.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "angry_talk",
+        "to": "idle",
+        "event": "angry_talk.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "cry",
+        "to": "idle",
+        "event": "cry.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "happy",
+        "to": "idle",
+        "event": "happy.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "happy_talk",
+        "to": "idle",
+        "event": "happy_talk.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "headshake",
+        "to": "idle",
+        "event": "headshake.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "laugh",
+        "to": "idle",
+        "event": "laugh.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "look_left_talk",
+        "to": "idle",
+        "event": "look_left_talk.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "nod",
+        "to": "idle",
+        "event": "nod.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "popcorn",
+        "to": "idle",
+        "event": "popcorn.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "sad",
+        "to": "idle",
+        "event": "sad.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "sad_talk",
+        "to": "idle",
+        "event": "sad_talk.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "shy",
+        "to": "idle",
+        "event": "shy.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "surprised",
+        "to": "idle",
+        "event": "surprised.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "surprised_talk",
+        "to": "idle",
+        "event": "surprised_talk.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "speaking",
+        "to": "idle",
+        "event": "speech.end"
+      },
+      {
+        "from": "thinking",
+        "to": "idle",
+        "event": "think.end"
+      },
+      {
+        "from": "*",
+        "to": "outro",
+        "event": "outro",
+        "guard": "not_terminal"
+      }
+    ],
+    "invariants": [
+      "intro never repeats within a session",
+      "every non-terminal, non-looping state has at least one path back to idle",
+      "outro is absorbing: no transitions out of it"
+    ]
+  },
+  "script": [
+    {
+      "event": "play:happy",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:happy_talk",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:laugh",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:nod",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:headshake",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:shy",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:surprised",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:surprised_talk",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:popcorn",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:sad",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:sad_talk",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:angry",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:angry_talk",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:cry",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:look_left_talk",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "speech.start",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "speech.end",
+      "dwell_ms": 4000,
+      "after_state": "speaking"
+    },
+    {
+      "event": "think.start",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "think.end",
+      "dwell_ms": 10000,
+      "after_state": "thinking"
+    },
+    {
+      "event": "outro",
+      "dwell_ms": 4000
+    }
+  ],
+  "tuning": {
+    "idle_min_ms": 4000,
+    "look_hold_ms": 5000
+  }
+}

@@ -1,0 +1,65 @@
+# ============ PlatformIO / build ============
+.pio/
+.vscode/
+# PIO component manager re-fetches these (pins: idf_component.yml)
+managed_components/
+
+# ============ Python ============
+__pycache__/
+*.pyc
+
+# ============ logs / local state / serial-monitor variants ============
+*.log
+*.log.out
+*.err
+*.bak
+pio_monitor*
+.mcp_state.json
+_mcp_mon_*.py
+
+# ============ RE / reverse-engineering scratch ============
+ghidra_out*/
+ghidra_proj*/
+ghidra_rom/
+ghidra_scripts/
+run_ghidra*
+javatool/
+toolchain/
+captures/
+decoded2/
+image/
+_sdobj/
+ref/
+
+# ============ big media (local working sets) ============
+# sd_stage/ IS tracked — the reference SD card content (Git LFS; see README)
+assets/
+decoded/
+# superseded spec revisions + probes (live specs are at docs/ root)
+docs/Tab5/
+
+# ============ old ad-hoc tools dir (superseded by scripts/) ============
+tools/
+
+# ============ src/: code only; session docs stay local ============
+src/handoff.md
+src/handoff-history.md
+src/work-in-progress.md
+src/look_ahead.md
+src/_s99_closeout.ps1
+
+# ============ scripts/: local variant ============
+scripts/webm_to_rfav_landscape.py
+
+# ============ loose files at repo root: README only ============
+# (plan/FINAL_SUMMARY/assessment/api_mapping/v11_mapping/library_matches/
+#  clips_frame0.jpg + all session/salvage scratch stay local — git add -f
+#  or un-ignore to include)
+/*.md
+!/README.md
+/*.ps1
+/*.bat
+/*.py
+/*.txt
+/*.json
+/*.jpg

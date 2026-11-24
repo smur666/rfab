@@ -1,0 +1,472 @@
+{
+  "version": "1.0.0",
+  "name": "elena",
+  "bg": "reality_fabricator_portrait_bg90.jpg",
+  "state_machine": {
+    "name": "companion_anim_fsm",
+    "version": "1.0.0",
+    "description": "Animation state machine. intro plays once, then idle loops forever. One-shot gesture states interrupt idle and auto-return to idle. Gaze looks use a 3-stage in/hold/out chain. outro is terminal.",
+    "initial": "intro",
+    "terminal": [
+      "outro"
+    ],
+    "default_state": "idle",
+    "conventions": {
+      "from": "'*' = any state except the initial, the terminal state, and the state itself",
+      "auto_return": "every state listed in `states` with `auto_return: true` fires `<name>.finished` and must return to idle",
+      "cancel": "any one-shot state may be aborted by `cancel`, which returns straight to idle (skipping out-transitions)"
+    },
+    "states": {
+      "intro": {
+        "clip": "intro",
+        "loop": false,
+        "interruptible": false,
+        "auto_return": false,
+        "on_finish": "idle"
+      },
+      "idle": {
+        "clip": "idle",
+        "loop": true,
+        "interruptible": true,
+        "auto_return": false,
+        "priority": 0
+      },
+      "look_left_in": {
+        "clip": "look_left_in",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 50,
+        "gaze": "left",
+        "role": "transition"
+      },
+      "look_left": {
+        "clip": "look_left",
+        "loop": true,
+        "interruptible": true,
+        "auto_return": false,
+        "priority": 50,
+        "gaze": "left",
+        "role": "hold"
+      },
+      "look_left_out": {
+        "clip": "look_left_out",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 50,
+        "gaze": "left",
+        "role": "transition"
+      },
+      "look_right_in": {
+        "clip": "look_right_in",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 50,
+        "gaze": "right",
+        "role": "transition"
+      },
+      "look_right": {
+        "clip": "look_right",
+        "loop": true,
+        "interruptible": true,
+        "auto_return": false,
+        "priority": 50,
+        "gaze": "right",
+        "role": "hold"
+      },
+      "look_right_out": {
+        "clip": "look_right_out",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 50,
+        "gaze": "right",
+        "role": "transition"
+      },
+      "ahegao": {
+        "clip": "ahegao",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "ar15": {
+        "clip": "ar15",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "gun": {
+        "clip": "gun",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "happy": {
+        "clip": "happy",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "heart": {
+        "clip": "heart",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "lovestruck": {
+        "clip": "lovestruck",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "make_sandwich": {
+        "clip": "make_sandwich",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "speaking": {
+        "clip": "speaking",
+        "loop": true,
+        "interruptible": true,
+        "auto_return": false,
+        "priority": 30
+      },
+      "surprised": {
+        "clip": "surprised",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "thinking": {
+        "clip": "thinking",
+        "loop": true,
+        "interruptible": true,
+        "auto_return": false,
+        "priority": 25
+      },
+      "yandere": {
+        "clip": "yandere",
+        "loop": false,
+        "interruptible": true,
+        "auto_return": true,
+        "priority": 20
+      },
+      "outro": {
+        "clip": "outro",
+        "loop": false,
+        "interruptible": false,
+        "auto_return": false,
+        "terminal": true,
+        "priority": 100
+      }
+    },
+    "transitions": [
+      {
+        "from": "intro",
+        "to": "idle",
+        "event": "intro.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "idle",
+        "to": "look_left_in",
+        "event": "look_left.pressed"
+      },
+      {
+        "from": "idle",
+        "to": "look_right_in",
+        "event": "look_right.pressed"
+      },
+      {
+        "from": "look_left_in",
+        "to": "look_left",
+        "event": "look_left_in.finished",
+        "guard": "look_left.still_held"
+      },
+      {
+        "from": "look_left_in",
+        "to": "look_left_out",
+        "event": "look_left_in.finished",
+        "guard": "look_left.released"
+      },
+      {
+        "from": "look_left_in",
+        "to": "idle",
+        "event": "cancel"
+      },
+      {
+        "from": "look_left",
+        "to": "look_left_out",
+        "event": "look_left.released"
+      },
+      {
+        "from": "look_left",
+        "to": "idle",
+        "event": "cancel"
+      },
+      {
+        "from": "look_left_out",
+        "to": "idle",
+        "event": "look_left_out.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "look_right_in",
+        "to": "look_right",
+        "event": "look_right_in.finished",
+        "guard": "look_right.still_held"
+      },
+      {
+        "from": "look_right_in",
+        "to": "look_right_out",
+        "event": "look_right_in.finished",
+        "guard": "look_right.released"
+      },
+      {
+        "from": "look_right_in",
+        "to": "idle",
+        "event": "cancel"
+      },
+      {
+        "from": "look_right",
+        "to": "look_right_out",
+        "event": "look_right.released"
+      },
+      {
+        "from": "look_right",
+        "to": "idle",
+        "event": "cancel"
+      },
+      {
+        "from": "look_right_out",
+        "to": "idle",
+        "event": "look_right_out.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "*",
+        "to": "ahegao",
+        "event": "play:ahegao"
+      },
+      {
+        "from": "*",
+        "to": "ar15",
+        "event": "play:ar15"
+      },
+      {
+        "from": "*",
+        "to": "gun",
+        "event": "play:gun"
+      },
+      {
+        "from": "*",
+        "to": "happy",
+        "event": "play:happy"
+      },
+      {
+        "from": "*",
+        "to": "heart",
+        "event": "play:heart"
+      },
+      {
+        "from": "*",
+        "to": "lovestruck",
+        "event": "play:lovestruck"
+      },
+      {
+        "from": "*",
+        "to": "make_sandwich",
+        "event": "play:make_sandwich"
+      },
+      {
+        "from": "*",
+        "to": "surprised",
+        "event": "play:surprised"
+      },
+      {
+        "from": "*",
+        "to": "yandere",
+        "event": "play:yandere"
+      },
+      {
+        "from": "*",
+        "to": "speaking",
+        "event": "speech.start"
+      },
+      {
+        "from": "*",
+        "to": "thinking",
+        "event": "think.start"
+      },
+      {
+        "from": "ahegao",
+        "to": "idle",
+        "event": "ahegao.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "ar15",
+        "to": "idle",
+        "event": "ar15.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "gun",
+        "to": "idle",
+        "event": "gun.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "happy",
+        "to": "idle",
+        "event": "happy.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "heart",
+        "to": "idle",
+        "event": "heart.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "lovestruck",
+        "to": "idle",
+        "event": "lovestruck.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "make_sandwich",
+        "to": "idle",
+        "event": "make_sandwich.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "surprised",
+        "to": "idle",
+        "event": "surprised.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "yandere",
+        "to": "idle",
+        "event": "yandere.finished",
+        "guard": "clip_end"
+      },
+      {
+        "from": "speaking",
+        "to": "idle",
+        "event": "speech.end"
+      },
+      {
+        "from": "thinking",
+        "to": "idle",
+        "event": "think.end"
+      },
+      {
+        "from": "*",
+        "to": "outro",
+        "event": "outro",
+        "guard": "not_terminal"
+      }
+    ],
+    "invariants": [
+      "intro never repeats within a session",
+      "look_* chain is atomic: look_left/look_right are only reachable via their _in state and only exit via their _out state or cancel",
+      "every non-terminal, non-looping state has at least one path back to idle",
+      "outro is absorbing: no transitions out of it"
+    ]
+  },
+  "script": [
+    {
+      "event": "play:ahegao",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:ar15",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:gun",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:happy",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:heart",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "look_left.pressed",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "look_left.released",
+      "dwell_ms": 5000,
+      "after_state": "look_left_in"
+    },
+    {
+      "event": "look_right.pressed",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "look_right.released",
+      "dwell_ms": 5000,
+      "after_state": "look_right_in"
+    },
+    {
+      "event": "play:lovestruck",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "play:make_sandwich",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "speech.start",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "speech.end",
+      "dwell_ms": 4000,
+      "after_state": "speaking"
+    },
+    {
+      "event": "play:surprised",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "think.start",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "think.end",
+      "dwell_ms": 10000,
+      "after_state": "thinking"
+    },
+    {
+      "event": "play:yandere",
+      "dwell_ms": 4000
+    },
+    {
+      "event": "outro",
+      "dwell_ms": 4000
+    }
+  ],
+  "tuning": {
+    "idle_min_ms": 4000,
+    "look_hold_ms": 5000
+  }
+}

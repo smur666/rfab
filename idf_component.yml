@@ -1,0 +1,9 @@
+# S141 (Q-M wipe fix): pin esp_hosted to the exact version on disk (2.13.1).
+# The framework manifest requires ^2.9.2 (a range). Without a project pin, the
+# resolver may pick a newer match -> resolved component_hash differs from the
+# .component_hash file on disk -> 'not up to date' -> re-download -> local
+# esp_hosted edits (sdio_drv.c halve-and-retry, transport_drv.c init-evt log)
+# wiped. Paired with IDF_COMPONENT_OVERWRITE_MANAGED_COMPONENTS = 0 in
+# platformio.ini [env] (which stops the unconditional-overwrite branch).
+dependencies:
+  espressif/esp_hosted: ==2.13.1
