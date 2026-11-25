@@ -33,6 +33,8 @@
 #include <SD_MMC.h>
 #include <ArduinoJson.h>
 #include <string.h>
+#include <new>             // S169: placement new (PSRAM AvatarDef)
+#include <esp_heap_caps.h> // S169
 
 namespace av {
 namespace {
@@ -389,7 +391,14 @@ bool tryModel(const char *name, bool from_config) {
     printf("avatar: %s — missing\n", path);
     return false;
   }
-  static uint8_t s_buf[kMaxJson + 1];  // function-static (NOT stack)
+  // S169: PSRAM (was 12 KB of internal .bss); allocated once, kept.
+  static uint8_t *s_buf = (uint8_t *)heap_caps_malloc(
+      kMaxJson + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!s_buf) {
+    f.close();
+    printf("avatar: %s — PSRAM parse buffer alloc failed\n", path);
+    return false;
+  }
   const int n = f.read(s_buf, kMaxJson);
   f.close();
   if (n <= 0) {
@@ -397,7 +406,16 @@ bool tryModel(const char *name, bool from_config) {
     return false;
   }
   s_buf[n] = 0;
-  static AvatarDef s_sd;  // the SD avatar's home (function-static)
+  // S169: the SD avatar's home in PSRAM (was 5.3 KB internal .bss).
+  static AvatarDef *s_sdp = [] {
+    void *m = heap_caps_calloc(1, sizeof(AvatarDef), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return m ? new (m) AvatarDef() : nullptr;
+  }();
+  if (!s_sdp) {
+    printf("avatar: %s — PSRAM AvatarDef alloc failed\n", path);
+    return false;
+  }
+  AvatarDef &s_sd = *s_sdp;
   if (!parseAndValidate((const char *)s_buf, (size_t)n, s_sd)) return false;
   s_active = &s_sd;
   s_from_sd = true;

@@ -238,8 +238,10 @@ void ft_init() {
   s_buf = (uint8_t *)heap_caps_malloc(kBufSize, MALLOC_CAP_SPIRAM);
   if (!s_buf) {
     printf("ft: PSRAM RX buffer FAIL — static internal-RAM fallback\n");
-    static uint8_t fallback[kBufSize];
-    s_buf = fallback;
+    // S169: runtime internal alloc (a static fallback cost 4 KB of
+    // internal .bss even when PSRAM succeeded — i.e. always).
+    s_buf = (uint8_t *)heap_caps_malloc(kBufSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!s_buf) return;
   }
   Serial.setTimeout(20);  // bounds Serial.read() from the rx task
   if (xTaskCreatePinnedToCore(ftRxTask, "ft_rx", 8192, nullptr, 1, nullptr,

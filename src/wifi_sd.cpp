@@ -58,7 +58,13 @@ char s_pass[kPassSz] = {0};
 bool readWifiCreds() {
   File f = SD_MMC.open("/config.json");
   if (!f) return false;
-  static uint8_t s_cfg[4096];  // function-static (NOT stack, S127 rule)
+  // S169: PSRAM (was 4 KB of internal .bss); allocated once, kept.
+  static uint8_t *s_cfg = (uint8_t *)heap_caps_malloc(
+      4096, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!s_cfg) {
+    f.close();
+    return false;
+  }
   const int n = f.read(s_cfg, 4095);
   f.close();
   if (n <= 0) return false;
@@ -91,14 +97,34 @@ bool readWifiCreds() {
 // re-reads were removed — they are not the only SD traffic, but they were
 // a needless part of the Q-SW internal-RAM pressure). On success fills
 // s_ssid/s_pass (the live credential cache the WiFi.begin() calls use).
+// S169: at boot (sd_allowed), a /config.json with credentials is the
+// source of truth: if NVS is empty OR differs (ssid or pass), NVS is
+// rewritten from it. No /config.json (or no wifi keys in it) -> NVS as-is
+// (the future serial-provisioned-at-flash path). Retries are NVS-only.
 bool loadCreds(bool sd_allowed) {
-  if (wifi_nvs_get(s_ssid, sizeof(s_ssid), s_pass, sizeof(s_pass))) {
+  char nv_ssid[kSsidSz] = {0};
+  char nv_pass[kPassSz] = {0};
+  const bool have_nvs = wifi_nvs_get(nv_ssid, sizeof(nv_ssid), nv_pass, sizeof(nv_pass));
+  if (sd_allowed && readWifiCreds()) {  // fills s_ssid/s_pass from the SD
+    const bool same = have_nvs && strcmp(nv_ssid, s_ssid) == 0 &&
+                      strcmp(nv_pass, s_pass) == 0;
+    if (same) {
+      printf("wifi: /config.json matches NVS — ssid=%s\n", s_ssid);
+    } else if (wifi_nvs_set(s_ssid, s_pass)) {
+      printf("wifi: NVS %s from /config.json — ssid=%s (passkey not printed)\n",
+             have_nvs ? "UPDATED" : "provisioned", s_ssid);
+    } else {
+      printf("wifi: NVS write FAILED — using /config.json creds this boot\n");
+    }
+    memset(nv_pass, 0, sizeof(nv_pass));
     return true;
   }
-  if (sd_allowed && readWifiCreds() && wifi_nvs_set(s_ssid, s_pass)) {
-    printf("wifi: provisioned from /config.json -> NVS — ssid=%s "
-           "(passkey not printed; boots from now on are NVS-only)\n",
-           s_ssid);
+  if (have_nvs) {
+    strncpy(s_ssid, nv_ssid, sizeof(s_ssid) - 1);
+    s_ssid[sizeof(s_ssid) - 1] = '\0';
+    strncpy(s_pass, nv_pass, sizeof(s_pass) - 1);
+    s_pass[sizeof(s_pass) - 1] = '\0';
+    memset(nv_pass, 0, sizeof(nv_pass));
     return true;
   }
   s_ssid[0] = '\0';
@@ -187,8 +213,9 @@ void wifiTask(void *) {
       const size_t ifree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
       const size_t ilarg = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
       printf("wifi: heap post-CONNECT — internal free=%u KB largest=%u KB "
-             "psram free=%u KB\n",
+             "min-ever=%u KB psram free=%u KB\n",
              (unsigned)(ifree / 1024), (unsigned)(ilarg / 1024),
+             (unsigned)(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
     }
     // Health loop: 30 s checks; any loss -> backoff + NVS re-check +
