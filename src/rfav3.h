@@ -44,8 +44,11 @@ struct Rfav3 {
   uint32_t hdr_crc = 0;
 
   // ---- parsed frame table ----
-  uint32_t off[MAX_FRAMES]     = {0};  // absolute mask offset
-  uint32_t jpeg_len[MAX_FRAMES] = {0};
+  // S169: the two MAX_FRAMES tables (32 KB) live in PSRAM, allocated on the
+  // first open() — as plain arrays they cost 32 KB of INTERNAL .bss per
+  // Rfav3 instance (rf + avatar.cpp's coverage probe = 64 KB).
+  uint32_t *off      = nullptr;  // absolute mask offset
+  uint32_t *jpeg_len = nullptr;
 
   bool   loopFlag()  const { return (flags & 0x01) != 0; }
   bool   hasMask()   const { return (flags & 0x02) != 0; }
@@ -70,8 +73,16 @@ struct Rfav3 {
   //             path (fallback). Each CALLER owns its own scratch — the
   //             read task and the player inline path can both call this on
   //             the shared Rfav3 (state is read-only after open).
+  //   fd/scratch_cap: S169 — optional raw VFS fd (openRaw) + scratch capacity.
+  //             When fd >= 0, scratch is 128-B aligned and scratch_cap is
+  //             big enough, the read is SECTOR-ALIGNED (512 B start/length)
+  //             via pread() straight into scratch: the SDMMC driver DMAs
+  //             directly to PSRAM and never needs its INTERNAL-RAM bounce
+  //             buffer (allocate_dma_buf) — the S133-S168 SD starvation
+  //             under WiFi. Anything else -> the File path above (unchanged).
   bool readFrame(File &f, int i, uint8_t *mask_buf, uint8_t *jpg_buf,
-                 uint32_t *jpg_got = nullptr, uint8_t *scratch = nullptr);
+                 uint32_t *jpg_got = nullptr, uint8_t *scratch = nullptr,
+                 int fd = -1, size_t scratch_cap = 0);
 
   // S129 BATCH READ: up to `count` frames starting at i0 in ONE contiguous
   // SD transfer. rev3 frames are [mask][jpeg] back-to-back, so a run of
@@ -87,7 +98,24 @@ struct Rfav3 {
   //                 nullptr falls back to the legacy 2-seek path for ONE
   //                 frame (count is clamped to 1).
   // Returns the number of frames read (0 = error).
+  //   fd/scratch_cap: S169 raw aligned path (see readFrame). With a known
+  //                 scratch_cap the batch also SHRINKS to fit the scratch
+  //                 (pre-S169 the batch was only bounded by kMaxJpeg sizing).
   int readFramesBatch(File &f, int i0, int count, uint8_t *const *mask_bufs,
                       uint8_t *const *jpg_bufs, uint32_t *jpg_gots,
-                      uint8_t *scratch);
+                      uint8_t *scratch, int fd = -1, size_t scratch_cap = 0);
+
+  // S169: open/close a raw read-only VFS fd for `sd_path` (an SD_MMC path
+  // like "/avatars/x/rfav/y.rfav"; the "/sdcard" mount prefix is added).
+  // Each caller owns its own fd (pread is offset-explicit, so no shared
+  // file position). Returns -1 on failure (callers fall back to File).
+  static int openRaw(const char *sd_path);
+  static void closeRaw(int &fd);
+  // S169: generic no-bounce read of [off, off+len) from a raw fd into a
+  // 128-B-aligned PSRAM scratch (cap >= round512(len + off%512)).
+  // 1 = ok (*out = first byte), 0 = I/O error, -1 = not applicable.
+  static int readAligned(int fd, uint32_t off, size_t len, uint8_t *scratch,
+                         size_t cap, uint8_t **out);
+  // Extra scratch bytes the aligned path needs beyond the payload.
+  static constexpr size_t kAlignSlack = 1024;
 };

@@ -39,6 +39,7 @@
 
 #include "audio_opus.h"
 #include "avatar.h"   // S122: per-model audio paths (/avatars/<model>/34k_opus/)
+#include "task_util.h" // S169: PSRAM task stacks
 
 // main.cpp globals (the player owns them; this module only reads)
 extern const char *g_clip_name;
@@ -642,8 +643,9 @@ bool audioInit() {
   auSync(s_ring, kRingBytes, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
 
   // 5. tasks — both core 1 (video owns core 0)
-  xTaskCreatePinnedToCore(decodeTask, "au_dec", 8192, nullptr, 3, nullptr, 1);
-  xTaskCreatePinnedToCore(feedTask, "au_feed", 4096, nullptr, 4, nullptr, 1);
+  // S169: PSRAM stacks (decode = SD + opus, feed = ring -> I2S copy; no flash/NVS).
+  createTaskPsram(decodeTask, "au_dec", 8192, nullptr, 3, nullptr, 1);
+  createTaskPsram(feedTask, "au_feed", 4096, nullptr, 4, nullptr, 1);
 
   printf("audio: READY — opus %s, decoder probe %s, ring %u B (%d frames x %d), vol %u/127\n",
          opusVersion(), probeDecoder() ? "ok" : "FAIL", (unsigned)kRingBytes,

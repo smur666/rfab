@@ -56,6 +56,7 @@ extern "C" esp_err_t esp_cache_get_alignment(uint32_t heap_caps, size_t *out_ali
 #include "avatar.h"   // S122: data-file FSM (avatar.json v1.0.0)
 #include "file_transfer.h"  // S133: Windows -> SD upload (serial; rx task on core 1)
 #include "wifi_sd.h"        // S133: WiFi via on-board ESP32-C6 (esp_hosted SDIO)
+#include "task_util.h"      // S169: PSRAM task stacks (frees internal SRAM for DMA)
 
 // Hooks added to the copied, patched M5GFX Panel_DSI.cpp (rfab POC):
 extern "C" uint16_t *rfab_poc_drawbuf(void);    // 720x1280 RGB565 PSRAM draw buffer
@@ -104,6 +105,7 @@ uint32_t kBudgetMs = 83;
 // ------------------------------ state ------------------------------
 Rfav3  rf;
 File   rf_file;
+int    rf_fd = -1;  // S169: raw VFS fd for the player's aligned no-bounce reads
 
 // S109: CLIP CYCLING state — the PLAYER owns the cycle (it declares "clip
 // done" at the end of every clip and advances the playlist); the prefetch
@@ -167,6 +169,8 @@ size_t    jpg_in_alloc = 0;
 uint8_t  *g_pf_scratch     = nullptr;  // prefetch read task (spawnPrefetch) — S129: two-tier BATCH scratch (985 KB -> 246 KB -> null)
 uint8_t   g_pf_batch_max   = 0;        // S129: active batch frames (4 / 1 / 0 — set by the spawnPrefetch tier)
 uint8_t  *g_inline_scratch = nullptr;  // player inline path (tryOpenRfa) — S129: unchanged (single-frame S128)
+size_t    g_pf_scratch_cap     = 0;   // S169: byte capacity (aligned reads + batch shrink)
+size_t    g_inline_scratch_cap = 0;   // S169
 
 jpeg_decoder_handle_t jdec = nullptr;
 jpeg_decode_cfg_t jdec_cfg = {
@@ -428,7 +432,9 @@ static bool initJpegEngine() {
 // 90° CCW transpose into buffer space). bg_buf is BUFFER space (720-px rows)
 // and 128 B aligned (S86 JDEC output requirement). Seeded into fb (plain
 // copy now — same space) so the panel shows it before frame 1.
+static void heapMark(const char *stage);  // S169 (defined above setup())
 static bool initBackground() {
+  heapMark("bg-entry");
   M5GFX &lcd = M5.Display;
   size_t bg_align = 128;   // S86: the JDEC PSRAM-output requirement (L2 line)
   size_t qa = 0;
@@ -472,8 +478,23 @@ static bool initBackground() {
     const uint32_t fsize = (uint32_t)b.size();
     printf("bg: %s found (%lu B)\n", bg_used, (unsigned long)fsize);
     if (fsize <= 1024 * 1024) {
-      uint8_t *tmp = (uint8_t *)heap_caps_malloc(fsize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-      if (tmp && b.read(tmp, fsize) == (int)fsize) {
+      // S169: aligned no-bounce read. A plain File read into an unaligned
+      // PSRAM buffer made sdmmc bounce the whole ~100 KB through INTERNAL
+      // RAM — and that ~125 KB never came back (heap[bg-entry] 325 KB ->
+      // heap[bg-read] 199 KB, largest 215 -> 87 KB).
+      const size_t tcap = (((size_t)fsize + 511) & ~(size_t)511) + Rfav3::kAlignSlack;
+      uint8_t *tmp = (uint8_t *)heap_caps_aligned_alloc(128, tcap,
+                                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      bool rd_ok = false;
+      if (tmp) {
+        int bfd = Rfav3::openRaw(bg_used);
+        uint8_t *bp = nullptr;
+        if (bfd >= 0) rd_ok = Rfav3::readAligned(bfd, 0, fsize, tmp, tcap, &bp) == 1;
+        Rfav3::closeRaw(bfd);
+        if (!rd_ok) rd_ok = b.read(tmp, fsize) == (int)fsize;  // legacy fallback
+      }
+      if (tmp && rd_ok) {
+        heapMark("bg-read");  // S169
         jpeg_decode_picture_info_t info = {};
         if (jpeg_decoder_get_info(tmp, fsize, &info) == ESP_OK &&
             (size_t)info.width * info.height * 2 <= 4 * 1024 * 1024) {
@@ -512,6 +533,7 @@ static bool initBackground() {
                                                  (uint8_t *)out, (uint32_t)w * h * 2,
                                                  &out_size) &&
                   out_size == (uint32_t)w * h * 2) {
+                heapMark("bg-decoded");  // S169
                 if (out == bg_buf) {
                   from_jpg = true;
                   printf("bg: %s decoded %ux%u (portrait) direct\n",
@@ -551,6 +573,7 @@ static bool initBackground() {
     }
     b.close();
   }
+  heapMark("bg-file-done");  // S169
 
   if (!from_jpg) {
     // 32 px checkerboard — the classic transparency proof.
@@ -703,6 +726,7 @@ static void prefetchTask(void *) {
     g_pb[s].in_use = false;
   }
   File      pf     = File();         // S109: opened per clip (boot path + re-arm)
+  int       pf_fd  = -1;             // S169: raw fd twin of pf (aligned no-bounce reads)
   uint32_t  my_gen = g_clip_gen;     // S109: the gen this task last re-armed on
   uint32_t  n      = rf.frame_count; // S109: per-clip frame count (was const)
   int       f_read = 0;              // S106: next frame to read (per-clip; the ring bounds it to f_hand+6)
@@ -720,6 +744,7 @@ static void prefetchTask(void *) {
         vTaskDelay(pdMS_TO_TICKS(10));
       if (g_clip_gen != my_gen) continue;
       if (pf) { pf.close(); pf = File(); }
+      Rfav3::closeRaw(pf_fd);  // S169
       for (int s = 0; s < kSlots; s++) {
         g_pb[s].tag = 0xFFFFFFFFu;  // poison — the handoff never matches
         g_pb[s].in_use = false;
@@ -729,6 +754,7 @@ static void prefetchTask(void *) {
       g_ep_n = 0; g_ep_sum_us = 0; g_ep_max_ms = 0;  // S128: no cross-clip episodes
       g_pf_live = false;  // the player runs inline until the reopen lands
       pf = SD_MMC.open(g_clip_path);
+      if (pf) pf_fd = Rfav3::openRaw(g_clip_path);  // S169
       if (!pf) {
         printf("prefetch: reopen(%s) failed — inline until next clip\n",
                g_clip_path);
@@ -745,13 +771,15 @@ static void prefetchTask(void *) {
       while (g_rf_armed_gen != my_gen && g_clip_gen == my_gen)
         vTaskDelay(pdMS_TO_TICKS(100));
       pf = SD_MMC.open(g_clip_path);
+      if (pf) pf_fd = Rfav3::openRaw(g_clip_path);  // S169
       if (!pf) {
         vTaskDelay(pdMS_TO_TICKS(500));
         continue;
       }
       n = rf.frame_count;
       g_pf_live = true;
-      printf("prefetch: live (core 0, %d-slot ring, S107 two-task)\n", kSlots);
+      printf("prefetch: live (core 0, %d-slot ring, S107 two-task; S169 raw fd=%d)\n",
+             kSlots, pf_fd);
     }
     // ---- S129 BATCH READ: f_read + up to `want` frames into the ring ----
     // want = min(g_pf_batch_max, frames left in the clip, longest FREE ring
@@ -790,9 +818,17 @@ static void prefetchTask(void *) {
     int gotn = 0;  // S129: frames actually read (a contiguity SHRINK is not an error)
     for (int attempt = 0; attempt < 10 && gotn < 1; attempt++) {  // S87: retry (0 = seek/short-read/C2M fail)
       if (g_clip_gen != my_gen) break;  // S109: switch raced the retry — top of loop re-arms
-      if (attempt > 0) vTaskDelay(pdMS_TO_TICKS(250));  // S135 (S134 plan): let transient WiFi-stack internal-SRAM allocs settle between retries
+      if (attempt > 0) {
+        vTaskDelay(pdMS_TO_TICKS(250));  // S135 (S134 plan): let transient WiFi-stack internal-SRAM allocs settle between retries
+        // S169: FatFs keeps a per-FIL sticky error after ONE disk error
+        // (fp->err) — every retry on the same handle fails. Reopen both.
+        Rfav3::closeRaw(pf_fd);
+        pf_fd = Rfav3::openRaw(g_clip_path);
+        if (pf) { pf.close(); }
+        pf = SD_MMC.open(g_clip_path);
+      }
       gotn = rf.readFramesBatch(pf, f_rel, want, m_bufs, j_bufs, gots,
-                                g_pf_scratch);  // S129: batch (null scratch = legacy 2-seek x1)
+                                g_pf_scratch, pf_fd, g_pf_scratch_cap);  // S169: aligned raw fd  // S129: batch (null scratch = legacy 2-seek x1)
       for (int k = 0; k < gotn && k < want; k++)
         if (gots[k] > kMaxJpeg) { gotn = 0; break; }  // per-frame sanity
     }
@@ -836,6 +872,7 @@ static void prefetchTask(void *) {
              (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
       pf.close();
       pf = File();
+      Rfav3::closeRaw(pf_fd);  // S169
       g_pf_live = false;
       while (g_clip_gen == my_gen) vTaskDelay(pdMS_TO_TICKS(500));
       continue;
@@ -881,15 +918,21 @@ static bool spawnPrefetch() {
     //   tier 1: kPfBatch frames = 985,088 B -> g_pf_batch_max = 4
     //   tier 2: 1 frame         = 246,272 B -> g_pf_batch_max = 1 (= S128 shape)
     if (s == 0 && !g_pf_scratch) {
-      g_pf_scratch = (uint8_t *)heap_caps_malloc(kMask1b + (size_t)kPfBatch * kMaxJpeg,
-                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      // S169: 128-B aligned (no-bounce SDMMC DMA target) and sized for a
+      // FULL batch — pre-S169 it was kMask1b + 4*kMaxJpeg (639 KB), which
+      // under-sized 4 masks (4*115,200) and could overrun with large JPEGs.
+      size_t cap = (size_t)kPfBatch * (kMask1b + kMaxJpeg) + Rfav3::kAlignSlack;
+      g_pf_scratch = (uint8_t *)heap_caps_aligned_alloc(128, cap,
+                                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
       if (g_pf_scratch) {
         g_pf_batch_max = (uint8_t)kPfBatch;
       } else {
-        g_pf_scratch = (uint8_t *)heap_caps_malloc(kMask1b + kMaxJpeg,
-                                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        cap = kMask1b + kMaxJpeg + Rfav3::kAlignSlack;
+        g_pf_scratch = (uint8_t *)heap_caps_aligned_alloc(128, cap,
+                                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         g_pf_batch_max = g_pf_scratch ? 1 : 0;
       }
+      g_pf_scratch_cap = g_pf_scratch ? cap : 0;
       printf("prefetch: S129 batch scratch %s — max %u frame(s)/transfer\n",
              g_pf_scratch ? "ok" : "FAILED (legacy 2-seek)", (unsigned)g_pf_batch_max);
     }
@@ -921,10 +964,11 @@ static bool spawnPrefetch() {
   // S107: TWO tasks — the handoff task first so the first ring fill is
   // picked up on its next 5 ms poll, then the read task. Both prio 1
   // core 0 (unchanged scheduling class; total CPU is the same as S106).
-  if (xTaskCreatePinnedToCore(pfHandTask, "rfav_pfhand", 8192, nullptr, 1,
-                              nullptr, 0) != pdPASS ||
-      xTaskCreatePinnedToCore(prefetchTask, "rfav_pfetch", 8192, nullptr, 1,
-                              nullptr, 0) != pdPASS) {
+  // S169: PSRAM stacks (no flash/NVS access in either task).
+  if (createTaskPsram(pfHandTask, "rfav_pfhand", 8192, nullptr, 1,
+                      nullptr, 0) != pdPASS ||
+      createTaskPsram(prefetchTask, "rfav_pfetch", 8192, nullptr, 1,
+                      nullptr, 0) != pdPASS) {
     printf("prefetch: task create FAILED — inline fallback\n");
     return false;
   }
@@ -1433,9 +1477,12 @@ static bool makeFrame(int i) {
   }
   if (!used_slot) {
     if (!rf.readFrame(rf_file, i % (int)rf.frame_count, mask_buf, jpg_in,
-                      &jpg_got, g_inline_scratch)) {  // S128: combined read (nullptr = legacy)
+                      &jpg_got, g_inline_scratch, rf_fd, g_inline_scratch_cap)) {  // S169: aligned raw fd  // S128: combined read (nullptr = legacy)
       g_sd_fail++;
       printf("frame %d: SD read FAILED (%s)\n", i, rf.err);
+      // S169: FatFs sticky per-FIL error — reopen so the NEXT frame can read.
+      Rfav3::closeRaw(rf_fd);
+      rf_fd = Rfav3::openRaw(g_clip_path);
       return false;
     }
   }
@@ -1696,6 +1743,7 @@ static void enterClipForState(uint8_t s) {
   }
   setClipByName(avd->states[s].clip);
   if (rf_file) { rf_file.close(); rf_file = File(); }
+  Rfav3::closeRaw(rf_fd);  // S169
   rf.ok = false;
   g_clip_gen++;               // re-arm prefetch/handoff (S109) + the audio engine
   g_clip_switch_pending = true;
@@ -1762,7 +1810,9 @@ static bool ensureSd() {
 
 static bool tryOpenRfa() {
   if (rf_file) { rf_file.close(); rf_file = File(); }
+  Rfav3::closeRaw(rf_fd);  // S169
   rf_file = SD_MMC.open(g_clip_path);  // S109: the current playlist clip
+  if (rf_file) rf_fd = Rfav3::openRaw(g_clip_path);  // S169: -1 = legacy File reads
   if (!rf_file) {
     snprintf(rf.err, sizeof(rf.err), "open(%s) failed", g_clip_path);
     g_open_fails++;  // S109: the rescan branch skips the clip after 3 fails
@@ -1770,6 +1820,7 @@ static bool tryOpenRfa() {
   }
   if (!rf.open(rf_file)) {
     rf_file.close(); rf_file = File();
+    Rfav3::closeRaw(rf_fd);  // S169
     g_open_fails++;  // S109: a bad header counts as a fail too
     return false;
   }
@@ -1785,8 +1836,10 @@ static bool tryOpenRfa() {
     jpg_in = (uint8_t *)jpeg_alloc_decoder_mem(kMaxJpeg, &in_cfg, &jpg_in_alloc);
   }
   if (!g_inline_scratch) {  // S128: combined-read scratch (player inline path)
-    g_inline_scratch = (uint8_t *)heap_caps_malloc(kMask1b + kMaxJpeg,
-                                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    // S169: 128-B aligned + slack for the sector-aligned raw read.
+    g_inline_scratch = (uint8_t *)heap_caps_aligned_alloc(
+        128, kMask1b + kMaxJpeg + Rfav3::kAlignSlack, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    g_inline_scratch_cap = g_inline_scratch ? kMask1b + kMaxJpeg + Rfav3::kAlignSlack : 0;
   }
   if (!mask_buf || !jpg_in) {
     snprintf(rf.err, sizeof(rf.err), "buffer alloc failed");
@@ -2186,7 +2239,24 @@ static void playerTask(void *) {
 
 // ------------------------------ setup ------------------------------
 
+// S169: internal-heap stage marker (free / largest / min-ever) — locates
+// who eats internal SRAM between boot and post-WiFi.
+static void heapMark(const char *stage) {
+  printf("heap[%s]: internal free=%u KB largest=%u KB min=%u KB | psram free=%u KB\n",
+         stage,
+         (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+         (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024),
+         (unsigned)(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) / 1024),
+         (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+}
+
 void setup() {
+  // S169: plain malloc() >= 1 KB goes to PSRAM first (stock threshold 4 KB).
+  // Moves lwIP PBUF_RAM payloads (~1.6 KB/segment — agent link, TTS, OTA),
+  // JSON docs, Strings out of internal SRAM. Drivers that need internal/DMA
+  // memory ask for it explicitly with heap_caps (unaffected).
+  heap_caps_malloc_extmem_enable(1024);
+  heapMark("setup-entry");
   // skytab s13 lesson: force the one-time newlib stdout-lock creation at boot
   // (clean heap) so later driver printfs only TAKE the lock.
   (void)printf("rfav3-poc: boot\n");
@@ -2316,6 +2386,7 @@ void setup() {
     return;
   }
   bootLog("background: ready (checkerboard or background.jpg)");
+  heapMark("after-bg");
 
   // S122: ANIMATION FSM (the active avatar's data) — initial state = the
   // avatar's `initial` (intro); the director (dirTick in the player task)
@@ -2349,14 +2420,17 @@ void setup() {
 
   // S112: AUDIO ENGINE — ES8388 + I2S0 + decode/feed tasks. ALL steps
   // non-fatal: any failure degrades to silent, video keeps running (S111).
+  heapMark("after-clip-open");
   rfav_audio::audioInit();
+  heapMark("after-audio");
 
   // S102: player core 1 -> 0 — kill the 87-127 ms core-1 descheduling chunks
   // (S101 item 4: unexplained gaps inside ft while SD/SDMMC activity ran on
   // core 1). FIX A is core-independent, so model M stays dead. Prefetch stays
   // where it is (core 0, prio 1).
-  xTaskCreatePinnedToCore(playerTask, "rfav3", 12288, nullptr, 1, nullptr, 0);
+  createTaskPsram(playerTask, "rfav3", 12288, nullptr, 1, nullptr, 0);  // S169: PSRAM stack (no flash/NVS in the player)
   bootLog("player task started (core 0) — S102");
+  heapMark("after-player");
 #if S94_CAPTURE
   s94cap::capInit();   // S94 E3: screen capture (staging + core-0 drain tasks)
 #endif
