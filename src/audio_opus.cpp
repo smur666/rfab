@@ -435,6 +435,10 @@ static void playOneClip(File &f, const char *name, uint32_t gen) {
       const uint32_t len = off - start;
       const uint8_t *pkt = page + 27 + nseg + start;
 
+      // OpusTags is the SECOND header packet (after OpusHead), so it must be
+      // skipped even once head_seen — it used to fall through to opus_decode()
+      // and fail (dec_err=1 on every voiced clip).
+      if (len >= 8 && memcmp(pkt, "OpusTags", 8) == 0) continue;
       if (!head_seen) {
         if (len >= 16 && memcmp(pkt, "OpusHead", 8) == 0) {
           const uint8_t ver = pkt[8], ch = pkt[9];

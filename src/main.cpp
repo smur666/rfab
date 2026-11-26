@@ -2098,10 +2098,13 @@ static void playerTask(void *) {
       const av::AvatarDef *avd = av::active();
       const uint8_t cur = g_fsm_state;
       if (avd->states[cur].loop) {
-        i = 0;  // loop in place — no event, no gen bump
-        continue;
-      }
-      if (avd->states[cur].terminal) {
+        // Loop by RE-ARMING the clip (gen bump) instead of `i = 0; continue`:
+        // the prefetch/handoff slot tags are monotonic per clip generation, so
+        // an in-place rewind made every frame of the 2nd pass a "stale slot"
+        // drop (tag 241 for frame 1 ...) and the panel froze on the last frame.
+        // Only visible when a looping state outlives its clip (e.g. idle > 20 s).
+        enterClipForState(cur);
+      } else if (avd->states[cur].terminal) {
         g_dir_session++;
         g_dir_step = 0;
         g_gaze_press_ms = 0;
